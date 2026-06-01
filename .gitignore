@@ -1,2 +1,4 @@
 *.sqsh
 venv/
+.env
+*.env
