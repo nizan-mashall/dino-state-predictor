@@ -4,3 +4,6 @@ venv/
 *.env
 *.hdf5
 *.h5
+openvla-oft
+checkpoints/
+*.mp4

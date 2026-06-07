@@ -8,7 +8,6 @@ output_path = '/code/data/demo_with_images.hdf5'
 
 f = h5py.File(input_path, 'r')
 env_args = json.loads(f['data'].attrs['env_args'])
-print("Env args:", env_args)
 
 # Create environment
 env = suite.make(
@@ -33,10 +32,11 @@ for i, demo_key in enumerate(demos):
     states = demo['states'][:]
     actions = demo['actions'][:]
 
-    # Reset env
+    # Reset env to first state
     env.reset()
+    env.sim.set_state_from_flattened(states[0])
+    env.sim.forward()
 
-    # Replay and collect observations
     agentview_images = []
     wrist_images = []
     eef_pos = []
@@ -44,15 +44,18 @@ for i, demo_key in enumerate(demos):
     gripper_qpos = []
 
     for t in range(len(actions)):
+        # Set state and render
         env.sim.set_state_from_flattened(states[t])
         env.sim.forward()
-        obs = env._get_observations()
+        
+        # Get observations after setting state
+        obs = env._get_observations(force_update=True)
 
-        agentview_images.append(obs['agentview_image'])
-        wrist_images.append(obs['robot0_eye_in_hand_image'])
-        eef_pos.append(obs['robot0_eef_pos'])
-        eef_quat.append(obs['robot0_eef_quat'])
-        gripper_qpos.append(obs['robot0_gripper_qpos'])
+        agentview_images.append(obs['agentview_image'].copy())
+        wrist_images.append(obs['robot0_eye_in_hand_image'].copy())
+        eef_pos.append(obs['robot0_eef_pos'].copy())
+        eef_quat.append(obs['robot0_eef_quat'].copy())
+        gripper_qpos.append(obs['robot0_gripper_qpos'].copy())
 
     # Save to output file
     out_demo = out_data.create_group(demo_key)
