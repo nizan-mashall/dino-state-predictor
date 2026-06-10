@@ -41,7 +41,7 @@ instruction = "pick up the red cube"
 frames = []
 total_reward = 0
 
-for step in range(50):
+for step in range(100):
     # Save front view
 
     agent_view = np.flipud(obs["agentview_image"])

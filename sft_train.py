@@ -19,7 +19,7 @@ os.makedirs('/code/checkpoints', exist_ok=True)
 class RoboSuiteDataset(Dataset):
     def __init__(self, hdf5_path, processor, instruction):
         self.f = h5py.File(hdf5_path, 'r')
-        self.demos = list(self.f['data'].keys())[:20]
+        self.demos = list(self.f['data'].keys())#[:20]
         self.instruction = instruction
         self.processor = processor
         self.action_tokenizer = ActionTokenizer(processor.tokenizer)
@@ -44,109 +44,58 @@ class RoboSuiteDataset(Dataset):
             'instruction': self.instruction
         }
 
-
-def analyze_sequence_anatomy(batch, processor):
-    """
-    Deconstructs a single batch item token-by-token to display 
-    exactly what the model sees, what is masked, and what is trained.
-    """
-    input_ids = batch["input_ids"][0]       # Analyze the very first item
-    labels = batch["labels"][0]
-    attention_mask = batch["attention_mask"][0]
-    
-    print("\n==================================================")
-    print("      DEEP INSPECTION: SINGLE SEQUENCE ANATOMY    ")
-    print("==================================================")
-    print(f"Total Combined Sequence Length: {len(input_ids)} tokens")
-    
-    # Track continuous segments where mask state remains the same
-    segments = []
-    current_type = "MASKED" if labels[0] == -100 else "ACTIVE (TARGET)"
-    start_idx = 0
-    
-    for idx in range(len(input_ids)):
-        is_masked = (labels[idx] == -100)
-        token_type = "MASKED" if is_masked else "ACTIVE (TARGET)"
-        
-        # If the token state changes, or we hit the end of the tensor, close the segment
-        if token_type != current_type or idx == len(input_ids) - 1:
-            end_idx = idx if token_type != current_type else idx + 1
-            segments.append({
-                "type": current_type,
-                "start": start_idx,
-                "end": end_idx,
-                "tokens": input_ids[start_idx:end_idx],
-                "attn_mask_sample": attention_mask[start_idx].item()
-            })
-            current_type = token_type
-            start_idx = idx
-
-    # Print out the step-by-step structural blueprint of your tensor
-    for i, seg in enumerate(segments):
-        print(f"\n📍 SECTOR {i}: [{seg['type']}]")
-        print(f"  • Token Indices: {seg['start']} to {seg['end']}")
-        print(f"  • Total Size:    {len(seg['tokens'])} tokens")
-        print(f"  • Attention Map: {'ACTIVE (1)' if seg['attn_mask_sample'] == 1 else 'IGNORED (0)'}")
-        
-        # Attempt to decode tokens back to text characters
-        # Note: Large visual patch placeholders will decode as blanks, <s>, or unknown tokens
-        decoded_text = processor.tokenizer.decode(seg['tokens'])
-        
-        if seg['type'] == "MASKED":
-            if seg['attn_mask_sample'] == 0:
-                print("  • PURPOSE: Right-Side Padding. (Ignored by both Loss AND Attention matrices).")
-            else:
-                print("  • PURPOSE: Input Context (System Prompt + Image Patches). Hidden from loss calculations.")
-                print(f"  • Trailing Text Snippet: {repr(decoded_text[-60:])}")
-        else:
-            print("  • PURPOSE: ROBOTIC ACTIONS. The model is actively penalized for missing these.")
-            print(f"  • Target Text String:   {repr(decoded_text)}")
-            print(f"  • Raw Token IDs Array:  {seg['tokens'].tolist()}")
-            
-    print("\n==================================================\n")
-
-
 def collate_fn(batch, processor, action_tokenizer):
     all_input_ids = []
     all_attention_masks = []
     all_labels = []
     all_pixel_values = []
     
+    DEBUG = False  # set to False to disable prints
+    
     for item in batch:
         image = item['image']
         action = item['action']
         instruction = item['instruction']
         
-        # 1. Process prompt and image together (without actions)
         prompt = f"In: What action should the robot take to {instruction}?\nOut:"
-        batch_inputs = processor(
-            text=prompt,
-            images=image,
-            return_tensors='pt'
-        )
+        batch_inputs = processor(text=prompt, images=image, return_tensors='pt')
         
-        input_ids = batch_inputs['input_ids'][0]          # Shape: [prompt_len]
-        attention_mask = batch_inputs['attention_mask'][0]  # Shape: [prompt_len]
-        pixel_values = batch_inputs['pixel_values'][0]      # Shape: [C, H, W]
+        input_ids = batch_inputs['input_ids'][0]
+        attention_mask = batch_inputs['attention_mask'][0]
+        pixel_values = batch_inputs['pixel_values'][0]
         
-        # 2. Tokenize action string completely independently
-        action_str = action_tokenizer(action)
-        action_token_ids = processor.tokenizer.encode(action_str, add_special_tokens=False)
+        # Tokenize action directly
+        Q01 = np.array([-0.2737, -0.2854, -0.8444, -0.0562, -0.0814, -0.1755, -1.0])
+        Q99 = np.array([ 0.7964,  0.3604,  1.0,     0.0558,  0.1694,  0.2551,  1.0])
 
-        if len(action_token_ids) == 8:
-            action_token_ids = action_token_ids[-7:]
+        action_normalized = 2 * (action - Q01) / (Q99 - Q01 + 1e-8) - 1
+        action_normalized = np.clip(action_normalized, -1, 1)
+        discretized = np.digitize(action, action_tokenizer.bins)
+        action_token_ids = processor.tokenizer.vocab_size - discretized
+        
+        if DEBUG:
+            print(f"\n--- DEBUG collate_fn ---")
+            print(f"Original action:    {action.round(4)}")
+            print(f"Discretized bins:   {discretized}")
+            print(f"Action token IDs:   {action_token_ids.tolist()}")
+            print(f"Num action tokens:  {len(action_token_ids)}")
+            print(f"All action tokens?: {all(t > action_tokenizer.action_token_begin_idx for t in action_token_ids)}")
+            print(f"Prompt token IDs:   {input_ids.tolist()}")
+            print(f"Prompt length:      {len(input_ids)}")
             
         action_tensor = torch.tensor(action_token_ids, dtype=torch.long)
-        
-        # 3. Concatenate at the tensor level (isolates 7 action tokens perfectly)
         full_input_ids = torch.cat([input_ids, action_tensor], dim=0)
+        full_attention_mask = torch.cat([attention_mask, torch.ones(len(action_token_ids), dtype=torch.long)], dim=0)
         
-        action_mask = torch.ones(len(action_token_ids), dtype=torch.long)
-        full_attention_mask = torch.cat([attention_mask, action_mask], dim=0)
-        
-        # 4. Mask out exactly the length of the prompt tensor
         labels = full_input_ids.clone()
-        labels[:len(input_ids)] = -100
+        labels[:-(len(action_token_ids) + 1)] = -100
+        
+        if DEBUG:
+            print(f"Full sequence length: {len(full_input_ids)}")
+            print(f"Active label tokens:  {(labels != -100).sum().item()}")
+            print(f"Active label IDs:     {full_input_ids[labels != -100].tolist()}")
+            print(f"Decoded active:       {processor.tokenizer.decode(full_input_ids[labels != -100].tolist())}")
+            DEBUG = False  # only print for first item in batch
         
         all_input_ids.append(full_input_ids)
         all_attention_masks.append(full_attention_mask)
@@ -220,7 +169,6 @@ def train():
     )
     
     test_batch = next(iter(dataloader))
-    analyze_sequence_anatomy(test_batch, processor)
 
     optimizer = torch.optim.AdamW(
         [p for p in model.parameters() if p.requires_grad],
@@ -269,21 +217,36 @@ def train():
                 
                 mask = action_gt > action_tokenizer.action_token_begin_idx
                 
+                Q01 = np.array([-0.2737, -0.2854, -0.8444, -0.0562, -0.0814, -0.1755, -1.0])
+                Q99 = np.array([ 0.7964,  0.3604,  1.0,     0.0558,  0.1694,  0.2551,  1.0])
+
                 if mask.sum() > 0:
-                    continuous_actions_pred = torch.tensor(
-                        action_tokenizer.decode_token_ids_to_actions(
-                            action_preds[mask].cpu().numpy()
-                        )
+                    pred_normalized = action_tokenizer.decode_token_ids_to_actions(
+                        action_preds[mask].cpu().numpy()
                     )
-                    continuous_actions_gt = torch.tensor(
-                        action_tokenizer.decode_token_ids_to_actions(
-                            action_gt[mask].cpu().numpy()
-                        )
+                    gt_normalized = action_tokenizer.decode_token_ids_to_actions(
+                        action_gt[mask].cpu().numpy()
                     )
-                    action_l1_loss = torch.nn.functional.l1_loss(
-                        continuous_actions_pred,
-                        continuous_actions_gt
-                    )
+                    
+                    pred_normalized = torch.tensor(pred_normalized)  # shape (N,)
+                    gt_normalized = torch.tensor(gt_normalized)      # shape (N,)
+                    
+                    # Reshape to (batch*steps, 7) for denormalization
+                    n_steps = len(pred_normalized) // 7
+                    pred_normalized = pred_normalized.reshape(n_steps, 7)
+                    gt_normalized = gt_normalized.reshape(n_steps, 7)
+                    
+                    Q01_t = torch.tensor(Q01, dtype=torch.float32)
+                    Q99_t = torch.tensor(Q99, dtype=torch.float32)
+                    
+                    pred_real = (pred_normalized + 1) / 2 * (Q99_t - Q01_t) + Q01_t
+                    gt_real = (gt_normalized + 1) / 2 * (Q99_t - Q01_t) + Q01_t
+                    
+                    action_l1_loss = torch.nn.functional.l1_loss(pred_real, gt_real)
+                    #action_l1_loss = torch.nn.functional.l1_loss(
+                    #    continuous_actions_pred,
+                    #    continuous_actions_gt
+                    #)
                     
                     total_l1_loss += action_l1_loss
 
