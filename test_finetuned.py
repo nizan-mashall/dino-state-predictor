@@ -48,8 +48,9 @@ for step in range(100):
     front_view = np.flipud(obs["frontview_image"])
     wrist_view = np.flipud(obs["robot0_eye_in_hand_image"])
 
-    side_by_side_frame = np.hstack((agent_view, front_view, wrist_view))
-    frames.append(side_by_side_frame)
+    #side_by_side_frame = np.hstack((agent_view, front_view, wrist_view))
+    #frames.append(side_by_side_frame)
+    frames.append(wrist_view)
     
     # Get wrist image for OpenVLA
     image = obs["agentview_image"]  # shape (256, 256, 3), uint8

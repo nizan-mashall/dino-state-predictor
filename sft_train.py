@@ -19,7 +19,7 @@ os.makedirs('/code/checkpoints', exist_ok=True)
 class RoboSuiteDataset(Dataset):
     def __init__(self, hdf5_path, processor, instruction):
         self.f = h5py.File(hdf5_path, 'r')
-        self.demos = list(self.f['data'].keys())#[:20]
+        self.demos = list(self.f['data'].keys())[:20]
         self.instruction = instruction
         self.processor = processor
         self.action_tokenizer = ActionTokenizer(processor.tokenizer)
@@ -70,7 +70,7 @@ def collate_fn(batch, processor, action_tokenizer):
 
         action_normalized = 2 * (action - Q01) / (Q99 - Q01 + 1e-8) - 1
         action_normalized = np.clip(action_normalized, -1, 1)
-        discretized = np.digitize(action, action_tokenizer.bins)
+        discretized = np.digitize(action_normalized, action_tokenizer.bins)
         action_token_ids = processor.tokenizer.vocab_size - discretized
         
         if DEBUG:
@@ -88,8 +88,9 @@ def collate_fn(batch, processor, action_tokenizer):
         full_attention_mask = torch.cat([attention_mask, torch.ones(len(action_token_ids), dtype=torch.long)], dim=0)
         
         labels = full_input_ids.clone()
-        labels[:-(len(action_token_ids) + 1)] = -100
-        
+        #labels[:-(len(action_token_ids) + 1)] = -100
+        labels[:-(len(action_token_ids))] = -100
+
         if DEBUG:
             print(f"Full sequence length: {len(full_input_ids)}")
             print(f"Active label tokens:  {(labels != -100).sum().item()}")
@@ -168,7 +169,6 @@ def train():
         collate_fn=lambda b: collate_fn(b, processor, action_tokenizer)
     )
     
-    test_batch = next(iter(dataloader))
 
     optimizer = torch.optim.AdamW(
         [p for p in model.parameters() if p.requires_grad],
