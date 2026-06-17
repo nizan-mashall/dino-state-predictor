@@ -26,6 +26,7 @@ for step in range(50):
     cv2.waitKey(1)
     
     action_low, action_high = env.action_spec
+    print(f"Action space: low={action_low}, high={action_high}")
     action = np.random.uniform(action_low, action_high)
     
     obs, reward, done, info = env.step(action)

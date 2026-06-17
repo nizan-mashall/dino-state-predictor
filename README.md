@@ -1,3 +1,5 @@
-# IsaacVLA
-1. The robosuite + openvla test file:
-        python3 /code/test_openvla_robosuite.py
+# TinyBC
+
+1. Transfer the training data 
+2. train the model
+3. load and evaluate
