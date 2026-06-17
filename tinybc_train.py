@@ -9,7 +9,7 @@ import robosuite as suite
 import imageio
 import os
 
-model =
+#model =
 model = model.to('cuda')
 model.eval()
 
