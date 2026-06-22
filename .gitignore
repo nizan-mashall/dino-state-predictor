@@ -6,3 +6,11 @@ venv/
 *.h5
 checkpoints/
 *.mp4
+logs/
+myenv/
+checkpoints_dino/
+python/
+__pycache__/
+python312.tar.gz
+checkpoints_colab/
+videos/
