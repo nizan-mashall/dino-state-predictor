@@ -12,7 +12,7 @@ mkdir -p logs
 mkdir -p ~/dino-state-predictor/checkpoints_dino
 
 source ~/dino-state-predictor/myenv/bin/activate
-cd ~/dino-state-predictor
+cd ~/dino-state-predictor/DinoMLP
 
 python tinybc_train.py \
     --hdf5_path ~/dino-state-predictor/demo_with_images.hdf5 \

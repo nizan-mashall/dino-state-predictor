@@ -9,5 +9,5 @@
 #SBATCH --error=logs/eval_%j.err
 
 source ~/dino-state-predictor/myenv/bin/activate
-cd ~/dino-state-predictor
+cd ~/dino-state-predictor/DinoMLP
 python -u tinybc_test.py
